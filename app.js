@@ -72,7 +72,7 @@ function initializeCharts() {
 
     // Temperature Chart
     temperatureChart = new Chart(tempCtx, {
-        type: 'line',V
+        type: 'line',
         data: {
             labels: [],
             datasets: [{
