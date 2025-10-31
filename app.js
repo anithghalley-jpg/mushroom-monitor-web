@@ -16,6 +16,7 @@ const REFRESH_INTERVAL = 60000;
 
 let allData = [];
 let currentRange = 60; // Default: last 60 minutes
+let currentFilteredData = []; // Store the currently displayed filtered data
 let temperatureChart = null;
 let humidityChart = null;
 let combinedChart = null;
@@ -50,9 +51,28 @@ function initializeCharts() {
     const humCtx = document.getElementById('humidityChart').getContext('2d');
     const combCtx = document.getElementById('combinedChart').getContext('2d');
 
+    // Tooltip callback function to show full date/time
+    const customTooltipCallbacks = {
+        title: function(context) {
+            const index = context[0].dataIndex;
+            const data = currentFilteredData[index];
+            if (data) {
+                return `${data.date} ${data.time}`;
+            }
+            return 'Data';
+        },
+        label: function(context) {
+            if (context.dataset.yAxisID === 'y' || context.chart.id === temperatureChart.id) {
+                return `Temperature: ${context.parsed.y.toFixed(1)}°C`;
+            } else {
+                return `Humidity: ${context.parsed.y.toFixed(1)}%`;
+            }
+        }
+    };
+
     // Temperature Chart
     temperatureChart = new Chart(tempCtx, {
-        type: 'line',
+        type: 'line',V
         data: {
             labels: [],
             datasets: [{
@@ -84,6 +104,16 @@ function initializeCharts() {
                 },
                 filler: {
                     propagate: true
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: { size: 13, weight: 'bold' },
+                    bodyFont: { size: 12 },
+                    borderColor: '#e74c3c',
+                    borderWidth: 1,
+                    displayColors: false,
+                    callbacks: customTooltipCallbacks
                 }
             },
             scales: {
@@ -94,7 +124,8 @@ function initializeCharts() {
                 },
                 x: {
                     grid: { display: false },
-                    ticks: { color: '#7f8c8d' }
+                    ticks: { color: '#7f8c8d' },
+                    title: { display: true, text: 'Time', color: '#2c3e50' }
                 }
             }
         }
@@ -131,6 +162,16 @@ function initializeCharts() {
                         color: '#2c3e50',
                         padding: 15,
                     }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: { size: 13, weight: 'bold' },
+                    bodyFont: { size: 12 },
+                    borderColor: '#3498db',
+                    borderWidth: 1,
+                    displayColors: false,
+                    callbacks: customTooltipCallbacks
                 }
             },
             scales: {
@@ -142,7 +183,8 @@ function initializeCharts() {
                 },
                 x: {
                     grid: { display: false },
-                    ticks: { color: '#7f8c8d' }
+                    ticks: { color: '#7f8c8d' },
+                    title: { display: true, text: 'Time', color: '#2c3e50' }
                 }
             }
         }
@@ -195,6 +237,32 @@ function initializeCharts() {
                         color: '#2c3e50',
                         padding: 15,
                     }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: { size: 13, weight: 'bold' },
+                    bodyFont: { size: 12 },
+                    borderColor: '#6b8e23',
+                    borderWidth: 1,
+                    displayColors: true,
+                    callbacks: {
+                        title: function(context) {
+                            const index = context[0].dataIndex;
+                            const data = currentFilteredData[index];
+                            if (data) {
+                                return `${data.date} ${data.time}`;
+                            }
+                            return 'Data';
+                        },
+                        label: function(context) {
+                            if (context.dataset.yAxisID === 'y') {
+                                return `Temperature: ${context.parsed.y.toFixed(1)}°C`;
+                            } else {
+                                return `Humidity: ${context.parsed.y.toFixed(1)}%`;
+                            }
+                        }
+                    }
                 }
             },
             scales: {
@@ -218,7 +286,8 @@ function initializeCharts() {
                 },
                 x: {
                     grid: { display: false },
-                    ticks: { color: '#7f8c8d' }
+                    ticks: { color: '#7f8c8d' },
+                    title: { display: true, text: 'Time', color: '#2c3e50' }
                 }
             }
         }
@@ -256,7 +325,7 @@ async function fetchData() {
 }
 
 // ============================================================================
-// DATA PROCESSING
+// DATA PROCESSING AND FORMATTING
 // ============================================================================
 
 function getFilteredData(range) {
@@ -276,32 +345,13 @@ function getFilteredData(range) {
     return allData;
 }
 
-function parseDateTime(dateStr, timeStr) {
-    // Expected format: date="2025-10-31", time="12:34:56"
-    try {
-        return new Date(`${dateStr}T${timeStr}`);
-    } catch (e) {
-        return new Date();
-    }
-}
-
-function formatTimeLabel(dateStr, timeStr, range) {
-    const date = parseDateTime(dateStr, timeStr);
-    
-    if (range === 60) {
-        // Show HH:MM for last hour
-        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    } else if (range === 'day') {
-        // Show HH:MM for last day
-        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    } else if (range === 'month') {
-        // Show MM-DD for last month
-        return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-    } else if (range === 'year') {
-        // Show MM-DD for last year
-        return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
-    }
-    return timeStr;
+/**
+ * Create simple sequential labels for the X-axis
+ * The actual date and time will be shown in the tooltip on hover
+ */
+function createSimpleLabels(dataLength) {
+    // Return empty labels - Chart.js will use indices
+    return Array(dataLength).fill('');
 }
 
 // ============================================================================
@@ -333,17 +383,17 @@ function updateLiveData() {
 }
 
 function updateCharts() {
-    const filteredData = getFilteredData(currentRange);
+    currentFilteredData = getFilteredData(currentRange);
     
-    if (filteredData.length === 0) {
+    if (currentFilteredData.length === 0) {
         console.warn('No data available for the selected range');
         return;
     }
 
-    // Prepare labels and data
-    const labels = filteredData.map(d => formatTimeLabel(d.date, d.time, currentRange));
-    const tempData = filteredData.map(d => parseFloat(d.temperature || d.temperaturec || 0));
-    const humData = filteredData.map(d => parseFloat(d.humidity || d.humidity1 || 0));
+    // Create simple labels (empty strings - tooltips will show the actual date/time)
+    const labels = createSimpleLabels(currentFilteredData.length);
+    const tempData = currentFilteredData.map(d => parseFloat(d.temperature || d.temperaturec || 0));
+    const humData = currentFilteredData.map(d => parseFloat(d.humidity || d.humidity1 || 0));
 
     // Update Temperature Chart
     temperatureChart.data.labels = labels;
@@ -360,6 +410,8 @@ function updateCharts() {
     combinedChart.data.datasets[0].data = tempData;
     combinedChart.data.datasets[1].data = humData;
     combinedChart.update();
+    
+    console.log(`Charts updated with ${currentFilteredData.length} data points for range: ${currentRange}`);
 }
 
 function updateDataTable() {
@@ -370,8 +422,8 @@ function updateDataTable() {
         return;
     }
 
-    // Show the last 20 readings in reverse order (newest first)
-    const recentData = allData.slice(-20).reverse();
+    // Show the last 10 readings in reverse order (newest first)
+    const recentData = allData.slice(-10).reverse();
     
     tableBody.innerHTML = recentData.map(row => `
         <tr>
@@ -458,4 +510,4 @@ function exportDataAsCSV() {
 }
 
 // Log application version
-console.log('Mushroom House Monitor v1.0 - Ready');
+console.log('Mushroom House Monitor v2.2 - Final Fixes for Tooltip and Table');
