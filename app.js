@@ -1,4 +1,4 @@
-// app.js - Mushroom House Monitor Web Application
+// app.js - Mushroom House Monitor Web Application (FINAL VERSION)
 
 // ============================================================================
 // CONFIGURATION
@@ -21,6 +21,84 @@ let temperatureChart = null;
 let humidityChart = null;
 let combinedChart = null;
 let lastUpdateTime = null;
+
+// ============================================================================
+// DATA CLEANING FUNCTIONS (ROBUST)
+// ============================================================================
+
+/**
+ * Extract the date part from any format (ISO string, Date object, or simple string)
+ * Returns format: "YYYY-MM-DD"
+ */
+function cleanDate(dateValue) {
+    if (!dateValue) return '--';
+    
+    // If it's an ISO string like "2025-10-30T18:00:00.000Z"
+    if (typeof dateValue === 'string' && dateValue.includes('T')) {
+        const match = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+            return `${match[1]}-${match[2]}-${match[3]}`;
+        }
+    }
+    
+    // If it's already in YYYY-MM-DD format
+    if (typeof dateValue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+        return dateValue;
+    }
+    
+    // If it's a Date object
+    if (dateValue instanceof Date) {
+        const year = dateValue.getFullYear();
+        const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+        const day = String(dateValue.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+    
+    return String(dateValue);
+}
+
+/**
+ * Extract the time part from any format (ISO string, Date object, or simple string)
+ * Returns format: "HH:MM:SS"
+ */
+function cleanTime(timeValue) {
+    if (!timeValue) return '--';
+    
+    // If it's an ISO string like "1899-12-30T12:07:51.000Z"
+    if (typeof timeValue === 'string' && timeValue.includes('T')) {
+        const match = timeValue.match(/T(\d{2}):(\d{2}):(\d{2})/);
+        if (match) {
+            return `${match[1]}:${match[2]}:${match[3]}`;
+        }
+    }
+    
+    // If it's already in HH:MM:SS format
+    if (typeof timeValue === 'string' && /^\d{2}:\d{2}:\d{2}$/.test(timeValue)) {
+        return timeValue;
+    }
+    
+    // If it's a Date object
+    if (timeValue instanceof Date) {
+        const hours = String(timeValue.getHours()).padStart(2, '0');
+        const minutes = String(timeValue.getMinutes()).padStart(2, '0');
+        const seconds = String(timeValue.getSeconds()).padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+    }
+    
+    return String(timeValue);
+}
+
+/**
+ * Clean and normalize a data row from the Google Sheet
+ */
+function cleanDataRow(row) {
+    return {
+        date: cleanDate(row.date),
+        time: cleanTime(row.time),
+        temperature: parseFloat(row.temperaturec || row.temperature || 0),
+        humidity: parseFloat(row.humidity || row.humidity1 || 0)
+    };
+}
 
 // ============================================================================
 // INITIALIZATION
@@ -50,25 +128,6 @@ function initializeCharts() {
     const tempCtx = document.getElementById('temperatureChart').getContext('2d');
     const humCtx = document.getElementById('humidityChart').getContext('2d');
     const combCtx = document.getElementById('combinedChart').getContext('2d');
-
-    // Tooltip callback function to show full date/time
-    const customTooltipCallbacks = {
-        title: function(context) {
-            const index = context[0].dataIndex;
-            const data = currentFilteredData[index];
-            if (data) {
-                return `${data.date} ${data.time}`;
-            }
-            return 'Data';
-        },
-        label: function(context) {
-            if (context.dataset.yAxisID === 'y' || context.chart.id === temperatureChart.id) {
-                return `Temperature: ${context.parsed.y.toFixed(1)}°C`;
-            } else {
-                return `Humidity: ${context.parsed.y.toFixed(1)}%`;
-            }
-        }
-    };
 
     // Temperature Chart
     temperatureChart = new Chart(tempCtx, {
@@ -113,7 +172,19 @@ function initializeCharts() {
                     borderColor: '#e74c3c',
                     borderWidth: 1,
                     displayColors: false,
-                    callbacks: customTooltipCallbacks
+                    callbacks: {
+                        title: function(context) {
+                            const index = context[0].dataIndex;
+                            const data = currentFilteredData[index];
+                            if (data) {
+                                return formatDateTimeForDisplay(data.date, data.time);
+                            }
+                            return 'Data';
+                        },
+                        label: function(context) {
+                            return `Temperature: ${context.parsed.y.toFixed(1)}°C`;
+                        }
+                    }
                 }
             },
             scales: {
@@ -171,7 +242,19 @@ function initializeCharts() {
                     borderColor: '#3498db',
                     borderWidth: 1,
                     displayColors: false,
-                    callbacks: customTooltipCallbacks
+                    callbacks: {
+                        title: function(context) {
+                            const index = context[0].dataIndex;
+                            const data = currentFilteredData[index];
+                            if (data) {
+                                return formatDateTimeForDisplay(data.date, data.time);
+                            }
+                            return 'Data';
+                        },
+                        label: function(context) {
+                            return `Humidity: ${context.parsed.y.toFixed(1)}%`;
+                        }
+                    }
                 }
             },
             scales: {
@@ -251,7 +334,7 @@ function initializeCharts() {
                             const index = context[0].dataIndex;
                             const data = currentFilteredData[index];
                             if (data) {
-                                return `${data.date} ${data.time}`;
+                                return formatDateTimeForDisplay(data.date, data.time);
                             }
                             return 'Data';
                         },
@@ -306,8 +389,9 @@ async function fetchData() {
         const result = await response.json();
 
         if (result.status === 'SUCCESS' && result.data) {
-            allData = result.data;
-            console.log(`Fetched ${allData.length} data points`);
+            // Clean all data rows to ensure consistent format
+            allData = result.data.map(row => cleanDataRow(row));
+            console.log(`Fetched and cleaned ${allData.length} data points`);
             
             updateLiveData();
             updateCharts();
@@ -346,11 +430,40 @@ function getFilteredData(range) {
 }
 
 /**
+ * Format date and time to user-friendly format
+ * Input: date="2025-10-30", time="12:07:51"
+ * Output: "30-10-2025 12:07 PM"
+ */
+function formatDateTimeForDisplay(dateStr, timeStr) {
+    if (!dateStr || !timeStr || dateStr === '--' || timeStr === '--') {
+        return 'No data';
+    }
+    
+    try {
+        // Parse date: YYYY-MM-DD
+        const [year, month, day] = dateStr.split('-');
+        
+        // Parse time: HH:MM:SS
+        const [hours, minutes, seconds] = timeStr.split(':');
+        const hour24 = parseInt(hours);
+        
+        // Convert to 12-hour format
+        const ampm = hour24 >= 12 ? 'PM' : 'AM';
+        const hour12 = hour24 % 12 || 12;
+        const hour12Str = String(hour12).padStart(2, '0');
+        
+        // Format: DD-MM-YYYY HH:MM AM/PM
+        return `${day}-${month}-${year} ${hour12Str}:${minutes} ${ampm}`;
+    } catch (e) {
+        console.error('Error formatting date/time:', dateStr, timeStr, e);
+        return `${dateStr} ${timeStr}`;
+    }
+}
+
+/**
  * Create simple sequential labels for the X-axis
- * The actual date and time will be shown in the tooltip on hover
  */
 function createSimpleLabels(dataLength) {
-    // Return empty labels - Chart.js will use indices
     return Array(dataLength).fill('');
 }
 
@@ -363,23 +476,30 @@ function updateLiveData() {
 
     const latestData = allData[allData.length - 1];
     
-    // Extract values (handle different possible key names from Google Sheets)
-    const temp = parseFloat(latestData.temperature || latestData.temperaturec || 0);
-    const hum = parseFloat(latestData.humidity || latestData.humidity1 || 0);
-    const date = latestData.date || '--';
-    const time = latestData.time || '--';
+    // Values are already cleaned
+    const temp = latestData.temperature;
+    const hum = latestData.humidity;
+    const date = latestData.date;
+    const time = latestData.time;
+    
+    // Format date and time for display
+    const formattedDateTime = formatDateTimeForDisplay(date, time);
 
     // Update temperature card
     document.getElementById('tempValue').textContent = temp.toFixed(1);
-    document.getElementById('tempTime').textContent = `Last update: ${date} ${time}`;
+    document.getElementById('tempTime').textContent = `Last update: ${formattedDateTime}`;
 
     // Update humidity card
     document.getElementById('humValue').textContent = hum.toFixed(1);
-    document.getElementById('humTime').textContent = `Last update: ${date} ${time}`;
+    document.getElementById('humTime').textContent = `Last update: ${formattedDateTime}`;
 
     // Update system status
     document.getElementById('dataCount').textContent = allData.length;
-    document.getElementById('lastSync').textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    document.getElementById('lastSync').textContent = `${hours}:${minutes}:${seconds}`;
 }
 
 function updateCharts() {
@@ -390,10 +510,10 @@ function updateCharts() {
         return;
     }
 
-    // Create simple labels (empty strings - tooltips will show the actual date/time)
+    // Create simple labels
     const labels = createSimpleLabels(currentFilteredData.length);
-    const tempData = currentFilteredData.map(d => parseFloat(d.temperature || d.temperaturec || 0));
-    const humData = currentFilteredData.map(d => parseFloat(d.humidity || d.humidity1 || 0));
+    const tempData = currentFilteredData.map(d => d.temperature);
+    const humData = currentFilteredData.map(d => d.humidity);
 
     // Update Temperature Chart
     temperatureChart.data.labels = labels;
@@ -418,21 +538,25 @@ function updateDataTable() {
     const tableBody = document.getElementById('dataTableBody');
     
     if (allData.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="4" class="no-data">No data available yet. Waiting for sensor readings...</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="3" class="no-data">No data available yet. Waiting for sensor readings...</td></tr>';
         return;
     }
 
     // Show the last 10 readings in reverse order (newest first)
     const recentData = allData.slice(-10).reverse();
     
-    tableBody.innerHTML = recentData.map(row => `
+    console.log(`Displaying ${recentData.length} rows in the table`);
+    
+    tableBody.innerHTML = recentData.map(row => {
+        const formattedDateTime = formatDateTimeForDisplay(row.date, row.time);
+        return `
         <tr>
-            <td>${row.date || '--'}</td>
-            <td>${row.time || '--'}</td>
-            <td>${parseFloat(row.temperature || row.temperaturec || 0).toFixed(1)}</td>
-            <td>${parseFloat(row.humidity || row.humidity1 || 0).toFixed(1)}</td>
+            <td>${formattedDateTime}</td>
+            <td>${row.temperature.toFixed(1)}</td>
+            <td>${row.humidity.toFixed(1)}</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 }
 
 function updateStatusIndicator(status) {
@@ -497,7 +621,7 @@ function exportDataAsCSV() {
 
     let csv = 'Date,Time,Temperature (°C),Humidity (%)\n';
     allData.forEach(row => {
-        csv += `${row.date},${row.time},${row.temperature || row.temperaturec},${row.humidity || row.humidity1}\n`;
+        csv += `${row.date},${row.time},${row.temperature},${row.humidity}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -510,4 +634,4 @@ function exportDataAsCSV() {
 }
 
 // Log application version
-console.log('Mushroom House Monitor v2.2 - Final Fixes for Tooltip and Table');
+console.log('Mushroom House Monitor v3.0 - Robust Data Cleaning');
